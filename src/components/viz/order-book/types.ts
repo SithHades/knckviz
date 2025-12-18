@@ -1,6 +1,6 @@
 export type Side = 'BID' | 'ASK';
 export type OrderType = 'LIMIT' | 'MARKET';
-export type Owner = 'NOISE' | 'AGENT';
+export type Owner = string;
 
 export interface Order {
   id: string;
@@ -27,3 +27,5 @@ export interface LobState {
   trades: Trade[];
   lastPrice: number;
 }
+
+export type MarketRegime = 'STABLE' | 'UPTREND' | 'DOWNTREND' | 'VOLATILE';

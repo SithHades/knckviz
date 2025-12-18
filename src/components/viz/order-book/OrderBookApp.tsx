@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { LobEngine } from './LobEngine';
 import { NoiseGenerator } from './NoiseGenerator';
-import { Agent } from './Agent';
+import { BaseAgent, NaiveMarketMaker, TrendFollower, DeepMarketMaker } from './Agent';
 import { OrderBookCanvas } from './OrderBookCanvas';
-import type { LobState } from './types';
+import type { LobState, MarketRegime } from './types';
 
 // Helper hook for responsive canvas
 const useResizeObserver = (ref: React.RefObject<HTMLElement>) => {
@@ -27,27 +27,44 @@ const useResizeObserver = (ref: React.RefObject<HTMLElement>) => {
 export const OrderBookApp: React.FC = () => {
   const engineRef = useRef(new LobEngine(100));
   const noiseRef = useRef(new NoiseGenerator(100, 2.0));
-  const agentRef = useRef(new Agent());
+
+  // Initialize Agents
+  const agentsRef = useRef<BaseAgent[]>([
+      new NaiveMarketMaker({ id: 'AGENT_NAIVE', name: 'Naive MM', type: 'MM', color: '#00d1ff' }),
+      new DeepMarketMaker({ id: 'AGENT_DEEP', name: 'Deep MM', type: 'MM', color: '#ae00ff' }),
+      new TrendFollower({ id: 'AGENT_TREND', name: 'Trend Follower', type: 'TF', color: '#ffbd00' }),
+  ]);
+
+  const [activeAgents, setActiveAgents] = useState<Record<string, boolean>>({
+      'AGENT_NAIVE': true,
+      'AGENT_DEEP': false,
+      'AGENT_TREND': false
+  });
+
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useResizeObserver(containerRef);
 
   // Stats
   const [stats, setStats] = useState({
       price: 100,
-      inventory: 0,
-      pnl: 0,
       fps: 0
   });
 
+  const [agentStats, setAgentStats] = useState<Record<string, { inv: number, pnl: number }>>({});
+
   // Controls
   const [volatility, setVolatility] = useState(2.0);
-  const [agentEnabled, setAgentEnabled] = useState(true);
   const [speed, setSpeed] = useState(1.0);
+  const [regime, setRegime] = useState<MarketRegime>('STABLE');
   const [showExplanation, setShowExplanation] = useState(false);
 
   useEffect(() => {
     noiseRef.current.setVolatility(volatility);
   }, [volatility]);
+
+  useEffect(() => {
+      noiseRef.current.setRegime(regime);
+  }, [regime]);
 
   const [lobState, setLobState] = useState<LobState>(engineRef.current.getState());
 
@@ -63,17 +80,13 @@ export const OrderBookApp: React.FC = () => {
       // Cap deltaTime to avoid spirals if tab was inactive
       const cappedDelta = Math.min(deltaTime, 100);
 
-      // Accumulate simulation time
-      // Base step is ~16ms (60fps). We scale by speed.
-      // If speed is 1, we add cappedDelta.
-      // If speed is 2, we add cappedDelta * 2.
       accumulatedSimTime.current += cappedDelta * speed;
 
       const timeStep = 16; // 60hz simulation steps
       let updates = 0;
 
       // Run simulation steps
-      while (accumulatedSimTime.current >= timeStep && updates < 10) { // Cap max updates to prevent freeze
+      while (accumulatedSimTime.current >= timeStep && updates < 10) {
           // 1. Noise
           if (Math.random() > 0.5) {
              const order = noiseRef.current.generateOrder(Date.now());
@@ -83,17 +96,33 @@ export const OrderBookApp: React.FC = () => {
               noiseRef.current.updateFairPrice();
           }
 
-          // 2. Agent
-          if (agentEnabled) {
-              // Agent runs less frequently, say every 10 ticks
-              if (Math.random() < 0.1) {
-                  agentRef.current.decide(engineRef.current, Date.now());
-                  agentRef.current.updatePortfolio(engineRef.current.getState().trades);
+          // 2. Agents
+          const currentState = engineRef.current.getState();
+          agentsRef.current.forEach(agent => {
+              if (activeAgents[agent.id]) {
+                  // Agents act with some probability per tick
+                   if (Math.random() < 0.1) {
+                      agent.decide(engineRef.current, Date.now());
+                   }
+                   agent.updatePortfolio(currentState.trades);
+              } else {
+                  // If deactivated, ensure no lingering orders?
+                  // We can do this once when toggled, but doing it here is safe too,
+                  // though inefficient. Better to handle in the toggle handler or
+                  // check if it has orders. For now, we rely on the agent's logic
+                  // to cancel its own orders, but if we don't call decide(), they stay.
+                  // So we should clear them.
+                  // Optimized: Check if orders exist for this agent in engine?
+                  // Or just indiscriminately cancel every N frames.
+                  // Let's implement a 'cleanup' for inactive agents.
+                  if (Math.random() < 0.05) {
+                      engineRef.current.cancelAllAgentOrders(agent.id);
+                  }
               }
-          }
+          });
 
           // Cleanup
-          if (Math.random() < 0.02) { // Occasionally cleanup
+          if (Math.random() < 0.02) {
              engineRef.current.cleanup();
           }
 
@@ -101,7 +130,7 @@ export const OrderBookApp: React.FC = () => {
           updates++;
       }
 
-      // 3. Render Update (Once per frame)
+      // 3. Render Update
       const currentState = engineRef.current.getState();
       setLobState(currentState);
 
@@ -110,14 +139,21 @@ export const OrderBookApp: React.FC = () => {
       if (frameCountRef.current % 30 === 0) {
           setStats({
               price: currentState.lastPrice,
-              inventory: agentRef.current.inventory,
-              pnl: agentRef.current.getUnrealizedPnL(currentState.lastPrice),
               fps: Math.round(1000 / (deltaTime || 16))
           });
+
+          const newAgentStats: Record<string, { inv: number, pnl: number }> = {};
+          agentsRef.current.forEach(agent => {
+              newAgentStats[agent.id] = {
+                  inv: agent.inventory,
+                  pnl: agent.getUnrealizedPnL(currentState.lastPrice)
+              };
+          });
+          setAgentStats(newAgentStats);
       }
 
       requestRef.current = requestAnimationFrame(loop);
-  }, [agentEnabled, speed]); // Dependencies
+  }, [speed, activeAgents]);
 
   useEffect(() => {
       requestRef.current = requestAnimationFrame(loop);
@@ -139,6 +175,17 @@ export const OrderBookApp: React.FC = () => {
       engineRef.current.addOrder(order);
   };
 
+  const toggleAgent = (id: string) => {
+      setActiveAgents(prev => {
+          const newState = { ...prev, [id]: !prev[id] };
+          if (!newState[id]) {
+              // If turning off, cancel orders immediately
+              engineRef.current.cancelAllAgentOrders(id);
+          }
+          return newState;
+      });
+  };
+
   return (
     <div style={{ width: '100%', height: '100%', backgroundColor: '#111', color: '#eee', display: 'flex', flexDirection: 'column' }}>
 
@@ -147,22 +194,51 @@ export const OrderBookApp: React.FC = () => {
         <div>
           <h2 style={{margin: '0 0 5px 0'}}>Order Book Organism</h2>
           <p style={{margin: 0, fontSize: '0.9em', color: '#888'}}>Mid Price: {stats.price.toFixed(2)}</p>
-          <button onClick={() => setShowExplanation(!showExplanation)} style={{ marginTop: '5px', fontSize: '0.8em', background: 'transparent', color: '#888', border: '1px solid #444', padding: '3px 8px', cursor: 'pointer', borderRadius: '4px' }}>
-             {showExplanation ? 'Hide Info' : 'Info'}
-          </button>
-        </div>
-
-        <div>
-           <h3 style={{margin: '0 0 5px 0', fontSize: '1em'}}>Agent Status</h3>
-           <div style={{fontSize: '0.9em'}}>
-               <span style={{ color: '#00d1ff', marginRight: '10px' }}>Inv: {stats.inventory}</span>
-               <span style={{ color: stats.pnl >= 0 ? '#00ff88' : '#ff4444' }}>
-                   PnL: {stats.pnl.toFixed(2)}
-               </span>
+           <div style={{ marginTop: '5px', display: 'flex', gap: '5px' }}>
+                <button onClick={() => setShowExplanation(!showExplanation)} style={{ fontSize: '0.8em', background: 'transparent', color: '#888', border: '1px solid #444', padding: '3px 8px', cursor: 'pointer', borderRadius: '4px' }}>
+                     {showExplanation ? 'Hide Info' : 'Info'}
+                </button>
            </div>
         </div>
 
+        {/* Agents Control Panel */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <h3 style={{margin: '0 0 5px 0', fontSize: '1em'}}>Active Agents</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                {agentsRef.current.map(agent => (
+                    <div key={agent.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85em' }}>
+                        <input
+                            type="checkbox"
+                            checked={activeAgents[agent.id]}
+                            onChange={() => toggleAgent(agent.id)}
+                            style={{ accentColor: agent.color }}
+                        />
+                        <span style={{ color: agent.color, width: '100px' }}>{agent.name}</span>
+                        <span style={{ width: '60px', textAlign: 'right' }}>Inv: {agentStats[agent.id]?.inv || 0}</span>
+                        <span style={{ width: '80px', textAlign: 'right', color: (agentStats[agent.id]?.pnl || 0) >= 0 ? '#00ff88' : '#ff4444' }}>
+                            PnL: {(agentStats[agent.id]?.pnl || 0).toFixed(1)}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', minWidth: '180px' }}>
+             {/* Regime Control */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                <label style={{ fontSize: '0.8em' }}>Regime:</label>
+                <select
+                    value={regime}
+                    onChange={(e) => setRegime(e.target.value as MarketRegime)}
+                    style={{ background: '#222', color: '#eee', border: '1px solid #444', fontSize: '0.8em', padding: '2px 5px', borderRadius: '3px' }}
+                >
+                    <option value="STABLE">Stable</option>
+                    <option value="UPTREND">Uptrend</option>
+                    <option value="DOWNTREND">Downtrend</option>
+                    <option value="VOLATILE">Volatile</option>
+                </select>
+            </div>
+
             {/* Speed Control */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <label style={{ fontSize: '0.8em', width: '50px' }}>Speed</label>
@@ -175,7 +251,6 @@ export const OrderBookApp: React.FC = () => {
                     onChange={(e) => setSpeed(parseFloat(e.target.value))}
                     style={{flex: 1, marginLeft: '10px'}}
                 />
-                <span style={{ fontSize: '0.8em', width: '30px', textAlign: 'right' }}>{speed.toFixed(1)}x</span>
             </div>
 
             {/* Volatility Control */}
@@ -190,51 +265,37 @@ export const OrderBookApp: React.FC = () => {
                     onChange={(e) => setVolatility(parseFloat(e.target.value))}
                     style={{flex: 1, marginLeft: '10px'}}
                 />
-                <span style={{ fontSize: '0.8em', width: '30px', textAlign: 'right' }}>{volatility}</span>
             </div>
-
-             <label style={{ fontSize: '0.8em', display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={agentEnabled} onChange={(e) => setAgentEnabled(e.target.checked)} />
-                AI Market Maker Agent
-            </label>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'row', gap: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
              <button
                     onClick={() => handleInjectMarketOrder('BID')}
                     style={{
-                        padding: '10px 15px',
+                        padding: '8px 12px',
                         background: '#00ff88',
                         color: 'black',
                         border: 'none',
                         borderRadius: '4px',
                         cursor: 'pointer',
                         fontWeight: 'bold',
-                        fontSize: '0.8em',
-                        boxShadow: '0 0 10px rgba(0,255,136,0.3)',
-                        transition: 'transform 0.1s'
+                        fontSize: '0.7em',
                     }}
-                    onMouseDown={e => e.currentTarget.style.transform = 'scale(0.95)'}
-                    onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
                 >
                     BUY SHOCK
                 </button>
                 <button
                     onClick={() => handleInjectMarketOrder('ASK')}
                     style={{
-                        padding: '10px 15px',
+                        padding: '8px 12px',
                         background: '#ff4444',
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
                         cursor: 'pointer',
                         fontWeight: 'bold',
-                         fontSize: '0.8em',
-                         boxShadow: '0 0 10px rgba(255,68,68,0.3)',
-                         transition: 'transform 0.1s'
+                         fontSize: '0.7em',
                     }}
-                    onMouseDown={e => e.currentTarget.style.transform = 'scale(0.95)'}
-                    onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
                 >
                     SELL SHOCK
                 </button>
@@ -258,14 +319,13 @@ export const OrderBookApp: React.FC = () => {
               color: '#ddd'
           }}>
               <h3 style={{ marginTop: 0 }}>Order Book Viz</h3>
-              <p>Visualizing a Limit Order Book with histograms.</p>
+              <p>Visualizing a Limit Order Book with multiple competing agents.</p>
               <ul style={{ paddingLeft: '20px' }}>
-                  <li><span style={{color: '#00ff88'}}>Green Bars</span>: Buy Orders (Bids).</li>
-                  <li><span style={{color: '#ff4444'}}>Red Bars</span>: Sell Orders (Asks).</li>
-                  <li><strong>Vertical Axis:</strong> Price.</li>
-                  <li><strong>Horizontal Axis:</strong> Volume/Depth.</li>
+                  <li><span style={{color: '#00d1ff'}}>Naive MM</span>: Standard inventory-keeping market maker.</li>
+                  <li><span style={{color: '#ae00ff'}}>Deep MM</span>: Provides liquidity deep in the book (wide spread).</li>
+                  <li><span style={{color: '#ffbd00'}}>Trend Follower</span>: Trades in the direction of momentum.</li>
               </ul>
-              <p>The <span style={{color: '#00d1ff'}}>Blue Agent</span> is a market maker bot attempting to profit from the spread.</p>
+              <p><strong>Regimes:</strong> Change the market conditions to see how agents adapt.</p>
               <button onClick={() => setShowExplanation(false)} style={{marginTop: '10px', width: '100%', padding: '5px', cursor: 'pointer'}}>Close</button>
           </div>
       )}
