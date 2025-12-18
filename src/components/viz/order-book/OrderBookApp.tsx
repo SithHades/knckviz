@@ -244,8 +244,8 @@ export const OrderBookApp: React.FC = () => {
                 <label style={{ fontSize: '0.8em', width: '50px' }}>Speed</label>
                 <input
                     type="range"
-                    min="0.1"
-                    max="5.0"
+                    min="0.01"
+                    max="2.0"
                     step="0.1"
                     value={speed}
                     onChange={(e) => setSpeed(parseFloat(e.target.value))}
