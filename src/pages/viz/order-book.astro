@@ -1,0 +1,18 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { OrderBookApp } from '../../components/viz/order-book/OrderBookApp';
+---
+
+<Layout title="The Order Book Organism">
+  <main>
+    <OrderBookApp client:only="react" />
+  </main>
+</Layout>
+
+<style>
+  main {
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+  }
+</style>
