@@ -1,0 +1,34 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { EfficientFrontierApp } from '../../components/viz/efficient-frontier/EfficientFrontierApp';
+---
+
+<Layout title="Efficient Frontier Rain">
+  <main>
+    <div class="header">
+      <h1>Efficient Frontier Rain</h1>
+      <p>Modern Portfolio Theory visualized through Monte Carlo simulation.</p>
+    </div>
+    <EfficientFrontierApp client:only="react" />
+  </main>
+</Layout>
+
+<style>
+  main {
+    width: 100%;
+    min-height: 100vh;
+    padding: 2rem;
+    box-sizing: border-box;
+  }
+  .header {
+    margin-bottom: 2rem;
+  }
+  h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+  }
+  p {
+    color: #aaa;
+    max-width: 600px;
+  }
+</style>
