@@ -18,8 +18,14 @@ export class Agent {
     return totalValue - this.initialCash;
   }
 
+  private lastTradeIndex: number = 0;
+
   public updatePortfolio(trades: import('./types').Trade[]) {
-      for (const trade of trades) {
+      // Only process new trades
+      const newTrades = trades.slice(this.lastTradeIndex);
+      if (newTrades.length === 0) return;
+
+      for (const trade of newTrades) {
           if (trade.buyerOwner === 'AGENT') {
               this.inventory += trade.volume;
               this.cash -= trade.price * trade.volume;
@@ -29,6 +35,7 @@ export class Agent {
               this.cash += trade.price * trade.volume;
           }
       }
+      this.lastTradeIndex = trades.length;
   }
 
   public decide(lob: LobEngine, timestamp: number) {
