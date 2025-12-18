@@ -200,8 +200,15 @@ export class LobEngine {
       }
   }
 
-  public cancelAllAgentOrders() {
-      this.bids = this.bids.filter(o => o.owner !== 'AGENT');
-      this.asks = this.asks.filter(o => o.owner !== 'AGENT');
+  public cancelAllAgentOrders(ownerId?: string) {
+      if (ownerId) {
+          this.bids = this.bids.filter(o => o.owner !== ownerId);
+          this.asks = this.asks.filter(o => o.owner !== ownerId);
+      } else {
+          // Fallback or clear all non-noise? Better be safe and only clear specific agents.
+          // For now, let's assume if no ID provided, we don't clear anything to be safe,
+          // OR we clear 'AGENT' for backward compatibility if we kept it.
+          // But we moved to string owners.
+      }
   }
 }
