@@ -1,0 +1,45 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { OptionPricingApp } from '../../components/viz/option-pricing/OptionPricingApp';
+---
+
+<Layout title="Option Path Tracer - knckviz">
+	<div class="viz-page">
+		<header>
+			<a href="/viz" class="back-link">&larr; Back to Visualizations</a>
+			<h1>Option Path Tracer</h1>
+			<p>Real-time Monte Carlo simulation for Option Pricing.</p>
+		</header>
+
+		<main>
+			<OptionPricingApp client:only="react" />
+		</main>
+	</div>
+
+	<style>
+		.viz-page {
+			max-width: 1400px;
+			margin: 0 auto;
+			padding: 2rem;
+		}
+		header {
+			margin-bottom: 2rem;
+		}
+		.back-link {
+			display: inline-block;
+			margin-bottom: 1rem;
+			color: #888;
+			text-decoration: none;
+		}
+		.back-link:hover {
+			color: #fff;
+		}
+		h1 {
+			margin: 0;
+			font-size: 2.5rem;
+			background: linear-gradient(45deg, #4facfe 0%, #00f2fe 100%);
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+	</style>
+</Layout>
