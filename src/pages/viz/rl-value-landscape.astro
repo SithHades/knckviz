@@ -1,0 +1,19 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import RLValueLandscape from '../../components/viz/rl-value-landscape/RLValueLandscape';
+---
+
+<Layout title="RL Value Landscape - knckviz" fullWidth={true}>
+  <div class="viz-container">
+    <RLValueLandscape client:only="react" />
+  </div>
+</Layout>
+
+<style>
+  .viz-container {
+    width: 100%;
+    height: calc(100vh - 160px); /* Approx header + footer height, adjustments might be needed */
+    min-height: 600px;
+    position: relative;
+  }
+</style>
